@@ -1,4 +1,4 @@
-name: Claude Code Review (Reusable)
+name: Claude Code Review
 
 on:
   workflow_call:

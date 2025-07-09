@@ -1,199 +1,81 @@
-# NandosUK Claude Code Review System
+# NandosUK Claude Code Review
 
-This repository contains centralized GitHub workflows for AI-powered code reviews using Claude across all NandosUK repositories.
+Add AI-powered code reviews to your repository using Claude.
 
-## 🚀 Quick Start
+## Setup (2 minutes)
 
-### 1. Add to Your Repository
-
-Copy the workflow file to your repository:
+### 1. Add Workflow File
 
 ```bash
-# Create the directory
 mkdir -p .github/workflows
-
-# Copy the template
 curl -o .github/workflows/claude-pr-review.yml \
   https://raw.githubusercontent.com/NandosUK/.github/main/templates/claude-pr-review-template.yml
 ```
 
-### 2. Start Using Claude
+### 2. Test It Works
 
-In any PR, issue, or comment, mention Claude:
+Create a test PR with `@claude` in the description, or comment `@claude help` on any PR.
 
-```
-@claude review this PR for security issues
-@claude help me optimize this function
-@claude check if this follows our coding standards
-```
+## Usage
 
-## 📋 How It Works
+Use `@claude` anywhere:
+- **In PR description** → Reviews automatically when PR opens/updates
+- **In PR comments** → Reviews on-demand
+- **In issue comments** → Reviews related PR (if exists)
 
-### Architecture
+Examples:
+- `@claude review this for security issues`
+- `@claude help optimize this function`
+- `@claude check coding standards`
 
-```
-Individual Repo Workflow → Centralized Reusable Workflow → Claude Code Action
-     (trigger)                    (orchestration)              (AI processing)
-```
+## Optional: Custom Configuration
 
-### Instruction Hierarchy
-
-1. **Organization Standards** (`INSTRUCTIONS.md`) - Applied to all repos
-2. **Repository Instructions** (`CLAUDE.md`) - Project-specific rules
-3. **Auto-detected Context** - Technology stack, build tools, etc.
-
-## 🛠️ Setup Requirements
-
-### Organization Secrets (Already Configured)
-
-- `ANTHROPIC_API_KEY` - Claude API access
-- `CLAUDE_APP_ID` - GitHub App ID
-- `CLAUDE_APP_PRIVATE_KEY` - GitHub App private key
-
-### Repository Setup
-
-1. **Copy workflow file** (see Quick Start)
-2. **Optional**: Create repository-specific `CLAUDE.md` file
-3. **Test**: Create a PR and comment `@claude help`
-
-## 📝 Repository Instructions (Optional)
-
-Create a `CLAUDE.md` file in your repository root for project-specific guidance:
+### Project Instructions
+Create `CLAUDE.md` in your repository root for project-specific guidance:
 
 ```markdown
-# My Project Claude Instructions
-
-## Project Context
-- This is a Node.js API service
-- Uses PostgreSQL database
-- Deployed on AWS ECS
-
-## Specific Review Areas
-- Check database query performance
-- Validate API security
-- Ensure proper error handling
+# Claude Instructions
 
 ## Build Commands
-- `npm run test` - Run tests
+- `npm test` - Run tests
 - `npm run lint` - Check code style
-- `npm run build` - Build for production
+
+## Focus Areas
+- Check database queries for N+1 issues
+- Validate API security
+- Ensure proper error handling
 ```
 
-## 💡 Usage Examples
-
-### Code Review
-```
-@claude review this PR for:
-- Security vulnerabilities
-- Performance issues
-- Code style compliance
-- Missing tests
-```
-
-### Code Assistance
-```
-@claude help me improve this function for better performance
-@claude suggest better error handling for this API endpoint
-@claude check if this database query can be optimized
-```
-
-### Architecture Guidance
-```
-@claude does this follow our microservices patterns?
-@claude review this API design for RESTful best practices
-@claude check if this component structure is maintainable
-```
-
-## ⚙️ Configuration Options
-
-### Workflow Customization
+### PR Size Limits
+Create `.claude-config.yml` in your repository root to customize limits:
 
 ```yaml
-# In your repository's .github/workflows/claude-pr-review.yml
-uses: NandosUK/.github/.github/workflows/claude-reusable.yml@main
-with:
-  instructions_url: 'https://raw.githubusercontent.com/NandosUK/.github/main/INSTRUCTIONS.md'  # Custom org instructions
+limits:
+  max_files_changed: 25
+  max_lines_changed: 1500
+  max_diff_size_kb: 200
+  max_file_size_kb: 50
+
+file_types:
+  include:
+    - "*.js"
+    - "*.ts"
+    - "*.py"
+  exclude:
+    - "node_modules/**"
+    - "*.min.js"
 ```
 
-### Supported Events
+## Troubleshooting
 
-- `issue_comment` - Comments on issues
-- `pull_request_review_comment` - PR review comments  
-- `issues` - New issues opened/assigned
+**Claude doesn't respond?**
+- Check workflow file exists in `.github/workflows/`
+- Verify you used `@claude` in PR body or comments
+- Check GitHub Actions logs for errors
 
-## 📊 Features
+**PR too large?**
+- Claude skips PRs > 25 files or > 1500 lines
+- Break large PRs into smaller chunks
+- Check `.claude-config.yml` for custom limits
 
-### ✅ What Claude Can Do
-
-- **Security Analysis**: Detect vulnerabilities, secrets exposure
-- **Code Quality**: Style, maintainability, best practices
-- **Performance Review**: Database queries, algorithms, caching
-- **Architecture Guidance**: Design patterns, structure recommendations
-- **Testing Suggestions**: Coverage, test quality, edge cases
-- **Documentation**: Code comments, API documentation
-
-### ⚠️ Limitations
-
-- **60-minute timeout** per interaction
-- **5 conversation turns** maximum
-- **Requires `@claude` mention** to trigger
-- **Context limited** to repository contents
-
-## 🔧 Troubleshooting
-
-### Common Issues
-
-**Claude doesn't respond**
-- Check if `@claude` is mentioned in comment
-- Verify workflow file exists in `.github/workflows/`
-- Check organization secrets are configured
-
-**Missing context**
-- Ensure `CLAUDE.md` file is in repository root
-- Check if organization `INSTRUCTIONS.md` is accessible
-- Verify repository permissions
-
-**Timeout errors**
-- Break large requests into smaller parts
-- Use specific, focused questions
-- Check if repository is too large
-
-### Getting Help
-
-- **Slack**: `#engineering-tools` channel
-- **Issues**: Create issue in this repository
-- **Documentation**: Check workflow logs in Actions tab
-
-## 📚 Templates
-
-See the `templates/` directory for:
-- `claude-pr-review-template.yml` - Basic workflow
-- `CLAUDE-template.md` - Repository instructions template
-- `advanced-workflow-template.yml` - Advanced configuration
-
-## 🔄 Updates
-
-This system is automatically updated. Your repositories will use the latest version unless you specify a specific version:
-
-```yaml
-uses: NandosUK/.github/.github/workflows/claude-reusable.yml@v1.0  # Pin to specific version
-```
-
-## 📈 Best Practices
-
-### For Effective Reviews
-1. **Be specific** in your requests
-2. **Provide context** about requirements
-3. **Ask focused questions** rather than broad reviews
-4. **Include error messages** when debugging
-
-### For Repository Setup
-1. **Create CLAUDE.md** for project-specific guidance
-2. **Include build commands** and testing instructions
-3. **Document architecture patterns** and conventions
-4. **Update instructions** as project evolves
-
----
-
-*Last updated: $(date +%Y-%m-%d)*  
-*Maintained by: DevOps Team*
+**Need help?** Ask in `#engineering-tools` Slack channel.
