@@ -1,0 +1,150 @@
+# Claude PR Review Configuration
+# Place this file in your repository root to customize Claude review behavior
+
+# PR Size Limits
+limits:
+  # Maximum number of files that can be changed in a PR
+  max_files_changed: 25
+  
+  # Maximum lines changed (insertions + deletions)
+  max_lines_changed: 1500
+  
+  # Maximum diff size in KB
+  max_diff_size_kb: 200
+  
+  # Maximum individual file size in KB
+  max_file_size_kb: 50
+
+# Review Strategy Thresholds
+thresholds:
+  # Use "detailed" strategy for PRs smaller than this
+  detailed_review_lines: 100
+  
+  # Use "security-and-bugs" strategy for PRs between detailed and summary
+  security_focus_lines: 500
+  
+  # Use "summary-only" strategy for PRs larger than this
+  summary_only_lines: 1500
+  
+  # Use "security-and-bugs" strategy if more than this many files changed
+  security_focus_files: 15
+
+# File Type Filtering
+file_types:
+  # Include these file extensions for review
+  include:
+    - "*.js"
+    - "*.ts"
+    - "*.jsx"
+    - "*.tsx"
+    - "*.py"
+    - "*.rb"
+    - "*.go"
+    - "*.java"
+    - "*.cpp"
+    - "*.c"
+    - "*.h"
+    - "*.cs"
+    - "*.php"
+    - "*.swift"
+    - "*.kt"
+    - "*.rs"
+    - "*.scala"
+    - "*.sh"
+    - "*.yml"
+    - "*.yaml"
+    - "*.json"
+    - "*.md"
+    - "*.sql"
+    - "*.tf"
+    - "*.hcl"
+  
+  # Exclude these patterns from review
+  exclude:
+    - "*.min.js"
+    - "*.min.css"
+    - "*.bundle.js"
+    - "*.bundle.css"
+    - "node_modules/**"
+    - "vendor/**"
+    - "build/**"
+    - "dist/**"
+    - "target/**"
+    - "coverage/**"
+    - ".git/**"
+    - "*.lock"
+    - "package-lock.json"
+    - "yarn.lock"
+    - "Pipfile.lock"
+    - "*.log"
+
+# Branch Configuration
+branches:
+  # Skip review for these branch patterns
+  skip_patterns:
+    - "dependabot/**"
+    - "renovate/**"
+    - "auto-**"
+  
+  # Only review PRs targeting these branches
+  allowed_targets:
+    - "main"
+    - "master"
+    - "develop"
+    - "staging"
+
+# Review Focus Areas by Strategy
+strategies:
+  detailed:
+    focus:
+      - "Code quality and style"
+      - "Security vulnerabilities"
+      - "Performance issues"
+      - "Test coverage"
+      - "Documentation"
+      - "Error handling"
+  
+  security-and-bugs:
+    focus:
+      - "Security vulnerabilities"
+      - "Critical bugs and errors"
+      - "Input validation"
+      - "Authentication/authorization"
+      - "Data handling"
+  
+  summary-only:
+    focus:
+      - "High-level architecture review"
+      - "Critical security issues"
+      - "Breaking changes"
+      - "Performance regressions"
+
+# Notification Settings
+notifications:
+  # Post size warnings when approaching limits
+  size_warnings:
+    enabled: true
+    warning_threshold: 0.8  # Warn at 80% of limits
+  
+  # Post strategy notifications
+  strategy_notifications:
+    enabled: true
+    skip_for_detailed: false  # Set to true to skip notifications for detailed reviews
+  
+  # Post helpful tips
+  tips:
+    enabled: true
+    
+# Advanced Settings
+advanced:
+  # Timeout for safety checks (in minutes)
+  safety_check_timeout: 5
+  
+  # Skip binary file detection (faster but less accurate)
+  skip_binary_check: false
+  
+  # Enable advanced pre-checks
+  enable_pre_checks: true
+  
+  # Enable post-review labeling
+  enable_auto_labeling: true

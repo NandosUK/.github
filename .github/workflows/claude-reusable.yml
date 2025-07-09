@@ -2,6 +2,17 @@ name: Claude Code Review (Reusable)
 
 on:
   workflow_call:
+    inputs:
+      timeout_minutes:
+        description: 'Timeout in minutes'
+        required: false
+        default: '60'
+        type: string
+      max_turns:
+        description: 'Maximum conversation turns'
+        required: false
+        default: '5'
+        type: string
     secrets:
       ANTHROPIC_API_KEY:
         required: true
@@ -17,7 +28,212 @@ permissions:
   id-token: write
 
 jobs:
+  pr-safety-checks:
+    runs-on: ubuntu-latest
+    outputs:
+      should-review: ${{ steps.safety.outputs.should-review }}
+      review-strategy: ${{ steps.safety.outputs.review-strategy }}
+      valid-files: ${{ steps.safety.outputs.valid-files }}
+      pr-stats: ${{ steps.safety.outputs.pr-stats }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: PR Safety Analysis
+        id: safety
+        run: |
+          # Skip if not a PR-related event
+          if [ "${{ github.event_name }}" != "pull_request" ] && [ "${{ github.event_name }}" != "pull_request_review_comment" ] && [ -z "${{ github.event.issue.pull_request || '' }}" ]; then
+            echo "should-review=true" >> $GITHUB_OUTPUT
+            echo "review-strategy=standard" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Get PR details
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+          else
+            # Get PR info from issue or review comment
+            PR_NUMBER=$(echo "${{ github.event.issue.pull_request.url || github.event.pull_request.url || '' }}" | grep -o '[0-9]\+$' || echo "")
+            if [ -n "$PR_NUMBER" ]; then
+              PR_INFO=$(gh pr view $PR_NUMBER --json baseRefOid,headRefOid)
+              BASE_SHA=$(echo "$PR_INFO" | jq -r '.baseRefOid')
+              HEAD_SHA=$(echo "$PR_INFO" | jq -r '.headRefOid')
+            else
+              echo "❌ Could not determine PR number"
+              echo "should-review=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          fi
+          
+          # Get changed files
+          CHANGED_FILES=$(git diff --name-only $BASE_SHA..$HEAD_SHA 2>/dev/null || echo "")
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "❌ No changed files found or git diff failed"
+            echo "should-review=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          CHANGED_FILES_COUNT=$(echo "$CHANGED_FILES" | wc -l)
+          
+          # Get diff statistics
+          DIFF_STATS=$(git diff --shortstat $BASE_SHA..$HEAD_SHA)
+          LINES_CHANGED=$(echo "$DIFF_STATS" | grep -oE '[0-9]+ insertion|[0-9]+ deletion' | awk '{sum+=$1} END {print sum+0}')
+          
+          # Calculate diff size
+          DIFF_SIZE=$(git diff $BASE_SHA..$HEAD_SHA | wc -c)
+          DIFF_SIZE_KB=$((DIFF_SIZE / 1024))
+          
+          # Filter valid files and check individual file sizes
+          VALID_FILES=""
+          LARGE_FILES=""
+          BINARY_FILES=""
+          
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            [ ! -f "$file" ] && continue
+            
+            # Check file size (50KB limit per file)
+            FILE_SIZE=$(stat -c%s "$file" 2>/dev/null || echo "0")
+            if [ "$FILE_SIZE" -gt 51200 ]; then
+              LARGE_FILES="$LARGE_FILES $file"
+              continue
+            fi
+            
+            # Check if file is binary
+            if file "$file" | grep -q "binary"; then
+              BINARY_FILES="$BINARY_FILES $file"
+              continue
+            fi
+            
+            # Filter by file type (only code files)
+            case "$file" in
+              *.js|*.ts|*.jsx|*.tsx|*.py|*.rb|*.go|*.java|*.cpp|*.c|*.h|*.cs|*.php|*.swift|*.kt|*.rs|*.scala|*.sh|*.yml|*.yaml|*.json|*.md|*.sql|*.tf|*.hcl)
+                VALID_FILES="$VALID_FILES $file"
+                ;;
+              *.min.js|*.min.css|*.bundle.js|*.bundle.css)
+                echo "⚠️ Skipping minified file: $file"
+                ;;
+              node_modules/*|vendor/*|build/*|dist/*|target/*|coverage/*|.git/*|*.lock|package-lock.json|yarn.lock)
+                echo "⚠️ Skipping generated/vendor file: $file"
+                ;;
+              *.png|*.jpg|*.jpeg|*.gif|*.svg|*.ico|*.pdf|*.zip|*.tar|*.gz|*.exe|*.dll|*.so|*.dylib|*.a|*.lib)
+                echo "⚠️ Skipping binary file: $file"
+                ;;
+              *)
+                echo "⚠️ Skipping unknown file type: $file"
+                ;;
+            esac
+          done <<< "$CHANGED_FILES"
+          
+          VALID_FILES_COUNT=$(echo "$VALID_FILES" | wc -w 2>/dev/null || echo "0")
+          
+          # Determine review strategy based on PR size
+          REVIEW_STRATEGY="standard"
+          SHOULD_REVIEW="true"
+          
+          # Check limits and set strategy
+          if [ "$CHANGED_FILES_COUNT" -gt 25 ]; then
+            echo "❌ Too many files changed: $CHANGED_FILES_COUNT (limit: 25)"
+            SHOULD_REVIEW="false"
+          elif [ "$VALID_FILES_COUNT" -eq 0 ]; then
+            echo "❌ No valid code files to review"
+            SHOULD_REVIEW="false"
+          elif [ "$DIFF_SIZE_KB" -gt 200 ]; then
+            echo "⚠️ Large diff: ${DIFF_SIZE_KB}KB (limit: 200KB)"
+            SHOULD_REVIEW="false"
+          elif [ "$LINES_CHANGED" -gt 1500 ]; then
+            echo "⚠️ Large PR: $LINES_CHANGED lines changed - using summary strategy"
+            REVIEW_STRATEGY="summary-only"
+          elif [ "$LINES_CHANGED" -gt 500 ]; then
+            echo "⚠️ Medium PR: $LINES_CHANGED lines changed - focusing on key areas"
+            REVIEW_STRATEGY="security-and-bugs"
+          elif [ "$VALID_FILES_COUNT" -gt 15 ]; then
+            echo "⚠️ Many files changed: $VALID_FILES_COUNT files - using focused strategy"
+            REVIEW_STRATEGY="security-and-bugs"
+          else
+            echo "✅ Small PR: $LINES_CHANGED lines, $VALID_FILES_COUNT files - detailed review"
+            REVIEW_STRATEGY="detailed"
+          fi
+          
+          # Generate PR stats
+          PR_STATS="📊 **PR Analysis**: $CHANGED_FILES_COUNT files, $LINES_CHANGED lines, ${DIFF_SIZE_KB}KB diff"
+          
+          if [ -n "$LARGE_FILES" ]; then
+            PR_STATS="$PR_STATS\n⚠️ **Large files skipped**: $(echo $LARGE_FILES | tr ' ' '\n' | wc -l) files"
+          fi
+          
+          if [ -n "$BINARY_FILES" ]; then
+            PR_STATS="$PR_STATS\n⚠️ **Binary files skipped**: $(echo $BINARY_FILES | tr ' ' '\n' | wc -l) files"
+          fi
+          
+          # Output results
+          echo "should-review=$SHOULD_REVIEW" >> $GITHUB_OUTPUT
+          echo "review-strategy=$REVIEW_STRATEGY" >> $GITHUB_OUTPUT
+          echo "pr-stats=$PR_STATS" >> $GITHUB_OUTPUT
+          
+          if [ "$SHOULD_REVIEW" == "true" ]; then
+            echo "✅ PR passed safety checks - Strategy: $REVIEW_STRATEGY"
+            echo "📁 Valid files: $VALID_FILES_COUNT"
+            echo "📝 Lines changed: $LINES_CHANGED"
+            echo "📄 Diff size: ${DIFF_SIZE_KB}KB"
+            
+            # Save valid files list
+            echo "valid-files<<EOF" >> $GITHUB_OUTPUT
+            echo "$VALID_FILES" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "❌ PR failed safety checks"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Post Safety Check Results
+        if: always()
+        run: |
+          if [ "${{ steps.safety.outputs.should-review }}" == "false" ]; then
+            # Post failure message
+            gh pr comment ${{ github.event.pull_request.number || github.event.issue.number }} --body "
+            🚫 **Claude Review Skipped**
+            
+            ${{ steps.safety.outputs.pr-stats }}
+            
+            **Reasons:**
+            - PR exceeds size limits for effective AI review
+            - Break into smaller PRs for better review quality
+            - Contact #engineering-tools for assistance with large changes
+            
+            **Limits:**
+            - Max 25 files changed
+            - Max 1500 lines changed  
+            - Max 200KB diff size
+            - Max 50KB per file
+            "
+          elif [ "${{ steps.safety.outputs.review-strategy }}" != "detailed" ]; then
+            # Post strategy notification
+            gh pr comment ${{ github.event.pull_request.number || github.event.issue.number }} --body "
+            ⚠️ **Claude Review Strategy: ${{ steps.safety.outputs.review-strategy }}**
+            
+            ${{ steps.safety.outputs.pr-stats }}
+            
+            Due to PR size, Claude will focus on:
+            - Security vulnerabilities
+            - Critical bugs and errors
+            - High-impact issues
+            
+            For detailed review, consider smaller PRs.
+            "
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   claude-review:
+    needs: pr-safety-checks
+    if: needs.pr-safety-checks.outputs.should-review == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -36,10 +252,12 @@ jobs:
         uses: anthropics/claude-code-action@main
         with:
           trigger_phrase: "@claude"
-          timeout_minutes: "60"
-          max_turns: 5
+          timeout_minutes: ${{ inputs.timeout_minutes }}
+          max_turns: ${{ inputs.max_turns }}
           github_token: ${{ steps.app-token.outputs.token }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
         env:
           ORGANIZATION: ${{ github.repository_owner }}
           REPOSITORY: ${{ github.event.repository.name }}
+          REVIEW_STRATEGY: ${{ needs.pr-safety-checks.outputs.review-strategy }}
+          VALID_FILES: ${{ needs.pr-safety-checks.outputs.valid-files }}
